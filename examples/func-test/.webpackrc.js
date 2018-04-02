@@ -2,7 +2,7 @@ import { resolve } from 'path';
 
 export default {
   alias: {
-    mixin: resolve(__dirname, 'common/mixin.less'),
+    common: resolve(__dirname, 'common'),
   },
   manifest: {
     basePath: '/app/',
@@ -10,6 +10,7 @@ export default {
   theme: {
     'brand-primary': '#7546c9',
   },
+  // publicPath: '/static/',
   // ./static by default
   // publicPath: './static/',
   // publicPath: '/dist/static/',

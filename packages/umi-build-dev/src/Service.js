@@ -1,5 +1,5 @@
 import { sync as rimraf } from 'rimraf';
-import { existsSync, renameSync, readFileSync } from 'fs';
+import { existsSync, renameSync } from 'fs';
 import { join } from 'path';
 import getWebpackRCConfig, {
   watchConfigs as watchWebpackRCConfig,
@@ -34,6 +34,7 @@ export default class Service {
       hash,
       preact,
       extraResolveModules,
+      libraryAlias = {},
       libraryName = 'umi',
       staticDirectory = 'static',
       tmpDirectory = '.umi',
@@ -49,6 +50,7 @@ export default class Service {
     this.hash = hash;
     this.preact = preact;
     this.extraResolveModules = extraResolveModules;
+    this.libraryAlias = libraryAlias;
     this.libraryName = libraryName;
     this.staticDirectory = staticDirectory;
     this.tmpDirectory = tmpDirectory;
@@ -73,7 +75,7 @@ export default class Service {
     });
   }
 
-  dev() {
+  async dev() {
     this.initPlugins();
 
     // 获取用户 config.js 配置
@@ -150,6 +152,8 @@ export default class Service {
         }),
       ],
     });
+
+    await this.applyPluginsAsync('beforeDevAsync');
 
     require('af-webpack/dev').default({
       // eslint-disable-line
@@ -235,6 +239,18 @@ export default class Service {
     }, opts.initialValue);
   }
 
+  async applyPluginsAsync(key, opts = {}) {
+    const plugins = this.pluginMethods[key] || [];
+    let memo = opts.initialValue;
+    for (const plugin of plugins) {
+      const { fn } = plugin;
+      memo = await fn({
+        memo,
+        args: opts.args,
+      });
+    }
+  }
+
   sendPageList() {
     const pageList = this.routes.map(route => {
       return { path: route.path };
@@ -302,26 +318,33 @@ export default class Service {
             rimraf(this.paths.absTmpDirPath);
           }
 
-          debug(`Bundle html files`);
-          const chunksMap = chunksToMap(stats.compilation.chunks);
-          try {
-            const hg = new HtmlGenerator(this, {
-              chunksMap,
-            });
-            hg.generate();
-          } catch (e) {
-            console.log(e);
-          }
+          this.applyPlugins('beforeGenerateHTML');
 
-          debug('Move service-worker.js');
-          const sourceSW = join(
-            this.paths.absOutputPath,
-            this.staticDirectory,
-            'service-worker.js',
-          );
-          const targetSW = join(this.paths.absOutputPath, 'service-worker.js');
-          if (existsSync(sourceSW)) {
-            renameSync(sourceSW, targetSW);
+          if (process.env.HTML !== 'none') {
+            debug(`Bundle html files`);
+            const chunksMap = chunksToMap(stats.compilation.chunks);
+            try {
+              const hg = new HtmlGenerator(this, {
+                chunksMap,
+              });
+              hg.generate();
+            } catch (e) {
+              console.log(e);
+            }
+
+            debug('Move service-worker.js');
+            const sourceSW = join(
+              this.paths.absOutputPath,
+              this.staticDirectory,
+              'service-worker.js',
+            );
+            const targetSW = join(
+              this.paths.absOutputPath,
+              'service-worker.js',
+            );
+            if (existsSync(sourceSW)) {
+              renameSync(sourceSW, targetSW);
+            }
           }
 
           this.applyPlugins('buildSuccess');

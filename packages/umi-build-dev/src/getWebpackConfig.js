@@ -14,6 +14,7 @@ export default function(service = {}) {
     babel,
     hash,
     routes,
+    libraryAlias,
     libraryName,
     staticDirectory,
     extraResolveModules,
@@ -43,15 +44,15 @@ export default function(service = {}) {
   // default react, support config with preact
   // 优先级：用户配置 > preact argument > default (React)
   const preactAlias = {
-    react: require.resolve('preact-compat'),
-    'react-dom': require.resolve('preact-compat'),
+    react: dirname(require.resolve('preact-compat/package.json')),
+    'react-dom': dirname(require.resolve('preact-compat/package.json')),
     'create-react-class': require.resolve(
       'preact-compat/lib/create-react-class',
     ),
   };
   const reactAlias = {
-    react: require.resolve('react'),
-    'react-dom': require.resolve('react-dom'),
+    react: dirname(require.resolve('react/package.json')),
+    'react-dom': dirname(require.resolve('react-dom/package.json')),
   };
   let preactOrReactAlias = preact ? preactAlias : reactAlias;
   if (config.preact === true) {
@@ -70,7 +71,14 @@ export default function(service = {}) {
       require.resolve('react-router-dom/package.json'),
     ),
     history: dirname(require.resolve('umi-history/package.json')),
+    ...Object.keys(libraryAlias).reduce((memo, key) => {
+      return {
+        ...memo,
+        [`${libraryName}/${key}`]: libraryAlias[key],
+      };
+    }, {}),
   };
+
   // 支持用户指定 antd 和 antd-mobile 的版本
   // TODO: 出错处理，用户可能指定了依赖，但未指定 npm install
   const pkgPath = join(cwd, 'package.json');
@@ -95,12 +103,19 @@ export default function(service = {}) {
 
     // 不允许配置
     entry,
-    outputPath: join(paths.absOutputPath, staticDirectory),
+    outputPath:
+      process.env.HTML === 'none'
+        ? paths.absOutputPath
+        : join(paths.absOutputPath, staticDirectory),
     hash: !isDev && hash,
 
     // 扩展
     babel: webpackRCConfig.babel || {
-      presets: [[babel, { browsers: browserslist }]],
+      presets: [
+        [babel, { browsers: browserslist }],
+        ...(webpackRCConfig.extraBabelPresets || []),
+      ],
+      plugins: webpackRCConfig.extraBabelPlugins || [],
     },
     browserslist,
     extraResolveModules: [
@@ -136,7 +151,7 @@ export default function(service = {}) {
           publicPath: `/`,
         }
       : {
-          publicPath: webpackRCConfig.publicPath || `./${staticDirectory}/`,
+          publicPath: webpackRCConfig.publicPath || `/${staticDirectory}/`,
           commons: webpackRCConfig.commons || [
             {
               async: 'common',

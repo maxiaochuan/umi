@@ -3,7 +3,7 @@ const babel = require('@babel/core');
 const through = require('through2');
 const chalk = require('chalk');
 const rimraf = require('rimraf');
-const { readdirSync, readFileSync, writeFileSync } = require('fs');
+const { readdirSync, readFileSync, writeFileSync, existsSync } = require('fs');
 const { join } = require('path');
 const chokidar = require('chokidar');
 const shell = require('shelljs');
@@ -40,9 +40,11 @@ const BROWSER_FILES = [
   'packages/umi/src/link.js',
   'packages/umi/src/navlink.js',
   'packages/umi/src/router.js',
+  'packages/umi/src/renderRoutes.js',
   'packages/umi/src/withRouter.js',
   'packages/umi/src/utils.js',
   'packages/umi-build-dev/src/Compiling.js',
+  'packages/umi-build-dev/src/DefaultLayout.js',
   'packages/af-webpack/src/webpackHotDevClient.js',
   'packages/af-webpack/src/utils.js',
   'packages/af-webpack/src/formatWebpackMessages.js',
@@ -108,6 +110,7 @@ function build() {
         ignoreInitial: true,
       });
       watcher.on('all', (event, fullPath) => {
+        if (!existsSync(fullPath)) return;
         const relPath = fullPath.replace(`${cwd}/packages/${pkg}/src/`, '');
         const content = readFileSync(fullPath, 'utf-8');
         try {

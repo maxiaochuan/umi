@@ -14,22 +14,31 @@ export default function(paths, config = {}) {
     : getRoutesByPagesDir(paths);
 
   if (config.exportStatic) {
-    routes.forEach(route => {
-      if (route.path.indexOf(':') > -1) {
-        throw new Error(
-          `Variable path ${route.path} don\'t work with exportStatic`,
-        );
-      }
+    patchRoutes(routes, config);
+  }
+
+  return routes;
+}
+
+function patchRoutes(routes, config) {
+  routes.forEach(route => {
+    if (route.path.indexOf(':') > -1) {
+      throw new Error(
+        `Variable path ${route.path} don\'t work with exportStatic`,
+      );
+    }
+
+    if (route.routes) {
+      patchRoutes(route.routes, config);
+    } else {
       if (
         typeof config.exportStatic === 'object' &&
         config.exportStatic.htmlSuffix
       ) {
         route.path = addHtmlSuffix(route.path);
       }
-    });
-  }
-
-  return routes;
+    }
+  });
 }
 
 function routesConfigExists(root) {
@@ -41,7 +50,8 @@ function routesConfigExists(root) {
 }
 
 function addHtmlSuffix(path) {
-  return path.slice(-1) === '/' ? path : `${path}.html`;
+  if (path === '/') return path;
+  return path.endsWith('/') ? `${path.slice(0, -1)}.html` : `${path}.html`;
 }
 
 function getRoutesByConfig(routesConfigFile) {
@@ -55,6 +65,17 @@ function getRoutesByConfig(routesConfigFile) {
 
 function variablePath(path) {
   return path.replace(/\$/g, ':');
+}
+
+function getLayoutJS(paths, fullPath) {
+  const files = ['_layout.tsx', '_layout.ts', '_layout.jsx', '_layout.js'];
+
+  for (const file of files) {
+    const layoutJS = join(paths.absPagesPath, fullPath, file);
+    if (existsSync(layoutJS)) {
+      return layoutJS;
+    }
+  }
 }
 
 function getRoutesByPagesDir(paths, dirPath = '') {
@@ -78,12 +99,20 @@ function getRoutesByPagesDir(paths, dirPath = '') {
       const ext = extname(file);
 
       if (stats.isFile() && EXT_NAMES.indexOf(ext) > -1) {
-        const fullPath = join(dirPath, basename(file, ext));
-        ret.push({
-          path: winPath(`/${variablePath(fullPath)}`).replace(/\/index$/, '/'),
-          exact: true,
-          component: `./${relative(cwd, filePath)}`,
-        });
+        const bname = basename(file, ext);
+        if (bname !== '_layout') {
+          const fullPath = join(dirPath, bname);
+          let path = winPath(`/${variablePath(fullPath)}`);
+          if (path === '/index/index') {
+            path = '/';
+          }
+          path = path.replace(/\/index$/, '/');
+          ret.push({
+            path,
+            exact: true,
+            component: `./${relative(cwd, filePath)}`,
+          });
+        }
       } else if (stats.isDirectory()) {
         let routerFound = false;
         const fullPath = join(dirPath, file);
@@ -114,7 +143,18 @@ function getRoutesByPagesDir(paths, dirPath = '') {
         }
 
         if (!routerFound) {
-          ret = ret.concat(getRoutesByPagesDir(paths, fullPath));
+          const layoutFile = getLayoutJS(paths, fullPath);
+          const childRoutes = getRoutesByPagesDir(paths, fullPath);
+          if (layoutFile) {
+            ret = ret.concat({
+              path: winPath(`/${variablePath(fullPath)}`),
+              exact: false,
+              component: `./${relative(cwd, layoutFile)}`,
+              routes: childRoutes,
+            });
+          } else {
+            ret = ret.concat(childRoutes);
+          }
         }
       }
     });

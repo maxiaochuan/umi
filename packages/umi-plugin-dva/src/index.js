@@ -5,21 +5,36 @@ import uniq from 'lodash.uniq';
 
 export default function(api) {
   const { RENDER, ROUTER_MODIFIER, IMPORT } = api.placeholder;
-  const { paths } = api.service;
+  const { paths, config } = api.service;
   const { winPath } = api.utils;
   const dvaContainerPath = join(paths.absTmpDirPath, 'DvaContainer.js');
   const isProduction = process.env.NODE_ENV === 'production';
+  const shouldImportDynamic = isProduction && !config.disableDynamicImport;
+
+  function getDvaJS() {
+    if (existsSync(join(paths.absSrcPath, 'dva.js'))) {
+      return winPath(join(paths.absSrcPath, 'dva.js'));
+    }
+    if (existsSync(join(paths.absSrcPath, 'dva.ts'))) {
+      return winPath(join(paths.absSrcPath, 'dva.ts'));
+    }
+  }
 
   function getModel(cwd) {
     const modelJSPath = join(cwd, 'model.js');
     if (existsSync(modelJSPath)) {
       return [winPath(modelJSPath)];
     }
+    const modelTSPath = join(cwd, 'model.ts');
+    if (existsSync(modelTSPath)) {
+      return [winPath(modelTSPath)];
+    }
 
     return globby
-      .sync('./models/**/*.{ts,js}', {
+      .sync(`./${config.singular ? 'model' : 'models'}/**/*.{ts,js}`, {
         cwd,
       })
+      .filter(p => !p.endsWith('.d.ts'))
       .map(p => winPath(join(cwd, p)));
   }
 
@@ -33,14 +48,27 @@ export default function(api) {
     );
   }
 
+  function isSrcPath(path) {
+    return (
+      winPath(endWithSlash(path)) === winPath(endWithSlash(paths.absSrcPath))
+    );
+  }
+
+  function getModelsWithRoutes(routes) {
+    return routes.reduce((memo, route) => {
+      return [
+        ...memo,
+        ...getPageModels(join(paths.cwd, route.component)),
+        ...(route.routes ? getModelsWithRoutes(route.routes) : []),
+      ];
+    }, []);
+  }
+
   function getGlobalModels() {
     let models = getModel(paths.absSrcPath);
-    if (!isProduction) {
+    if (!shouldImportDynamic) {
       // dev 模式下还需要额外载入 page 路由的 models 文件
-      // TODO: routes 支持嵌套时这里需要同步处理
-      api.service.routes.forEach(({ component }) => {
-        models = models.concat(getPageModels(join(paths.cwd, component)));
-      });
+      models = [...models, ...getModelsWithRoutes(api.service.routes)];
       // 去重
       models = uniq(models);
     }
@@ -49,7 +77,7 @@ export default function(api) {
 
   function getPageModels(cwd) {
     let models = [];
-    while (!isPagesPath(cwd)) {
+    while (!isPagesPath(cwd) && !isSrcPath(cwd) && cwd !== '/') {
       models = models.concat(getModel(cwd));
       cwd = dirname(cwd);
     }
@@ -67,13 +95,13 @@ export default function(api) {
   }
 
   function getPluginContent() {
-    const pluginPaths = globby.sync('plugins/*.js', {
+    const pluginPaths = globby.sync('plugins/**/*.{js,ts}', {
       cwd: paths.absSrcPath,
     });
     return pluginPaths
       .map(path =>
         `
-    app.use(require('../../${path}').default);
+app.use(require('../../${path}').default);
   `.trim(),
       )
       .join('\r\n');
@@ -88,16 +116,29 @@ export default function(api) {
   }
 
   function chunkName(path) {
-    return stripFirstSlash(winPath(path.replace(paths.cwd, ''))).replace(
-      /\//g,
-      '__',
-    );
+    return stripFirstSlash(
+      winPath(path).replace(winPath(paths.cwd), ''),
+    ).replace(/\//g, '__');
   }
 
   api.register('generateFiles', () => {
     const tpl = join(__dirname, '../template/DvaContainer.js');
     let tplContent = readFileSync(tpl, 'utf-8');
+    const dvaJS = getDvaJS();
+    if (dvaJS) {
+      tplContent = tplContent.replace(
+        '<%= ExtendDvaConfig %>',
+        `
+...((require('${dvaJS}').config || (() => ({})))()),
+        `.trim(),
+      );
+      //         .replace('<%= EnhanceApp %>', `
+      // app = (require('${dvaJS}').enhance || (app => app))(app);
+      //         `.trim());
+    }
     tplContent = tplContent
+      .replace('<%= ExtendDvaConfig %>', '')
+      .replace('<%= EnhanceApp %>', '')
       .replace('<%= RegisterPlugins %>', getPluginContent())
       .replace('<%= RegisterModels %>', getGlobalModelContent());
     writeFileSync(dvaContainerPath, tplContent, 'utf-8');
@@ -109,7 +150,7 @@ export default function(api) {
         IMPORT,
         `
 import { routerRedux } from 'dva/router';
-${isProduction ? `import _dvaDynamic from 'dva/dynamic';` : ''}
+${shouldImportDynamic ? `import _dvaDynamic from 'dva/dynamic';` : ''}
 ${IMPORT}
       `.trim(),
       )
@@ -123,9 +164,13 @@ ${ROUTER_MODIFIER}
       );
   });
 
-  if (isProduction) {
-    api.register('modifyRouteComponent', ({ args }) => {
+  if (shouldImportDynamic) {
+    api.register('modifyRouteComponent', ({ memo, args }) => {
       const { pageJSFile, webpackChunkName } = args;
+      if (!webpackChunkName) {
+        return memo;
+      }
+
       let ret = `
 _dvaDynamic({
   <%= MODELS %>
@@ -181,6 +226,8 @@ ReactDOM.render(React.createElement(
       ...memo,
       join(paths.absSrcPath, 'models'),
       join(paths.absSrcPath, 'plugins'),
+      join(paths.absSrcPath, 'dva.js'),
+      join(paths.absSrcPath, 'dva.ts'),
     ];
   });
 }

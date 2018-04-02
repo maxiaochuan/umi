@@ -267,8 +267,7 @@ export default function getConfig(opts = {}) {
 
   const babelOptions = {
     ...(opts.babel || babelConfig),
-    // 性能提升有限，但会带来一系列答疑的工作量，所以不开放
-    cacheDirectory: false,
+    cacheDirectory: process.env.BABEL_CACHE !== 'none',
     babelrc: !!process.env.BABELRC,
   };
   babelOptions.plugins = [
@@ -410,7 +409,7 @@ export default function getConfig(opts = {}) {
             ]),
         {
           exclude: [
-            /\.html|ejs$/,
+            /\.(html|ejs)$/,
             /\.json$/,
             /\.(js|jsx|ts|tsx)$/,
             /\.(css|less|scss|sass)$/,
@@ -424,11 +423,13 @@ export default function getConfig(opts = {}) {
         },
         {
           test: /\.(js|jsx)$/,
+          include: opts.cwd,
           exclude: /node_modules/,
           use: babelUse,
         },
         {
           test: /\.(ts|tsx)$/,
+          include: opts.cwd,
           exclude: /node_modules/,
           use: [
             ...babelUse,
@@ -490,7 +491,7 @@ export default function getConfig(opts = {}) {
                 ],
           )
         : [
-            new webpack.optimize.OccurrenceOrderPlugin(),
+            new webpack.HashedModuleIdsPlugin(),
             new webpack.optimize.ModuleConcatenationPlugin(),
             new ExtractTextPlugin({
               filename: `[name]${cssHash}.css`,

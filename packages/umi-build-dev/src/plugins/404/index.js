@@ -1,28 +1,34 @@
-import { join } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { join, basename, extname } from 'path';
+import { readFileSync } from 'fs';
 
-const EXTNAMES = ['.js', '.jsx', '.ts', '.tsx'];
-
-export default function(api) {
-  const { paths } = api.service;
-  const { winPath } = api.utils;
-
-  function get404JS() {
-    for (const extname of EXTNAMES) {
-      const filePath = winPath(join(paths.absPagesPath, `404${extname}`));
-      if (existsSync(filePath)) {
-        return filePath;
-      }
+export function patchRoutes(routes) {
+  let index = null;
+  for (const [i, value] of routes.entries()) {
+    const { component } = value;
+    if (basename(component, extname(component)) === '404') {
+      index = i;
+    }
+    if (value.routes) {
+      value.routes = patchRoutes(value.routes);
     }
   }
+  if (index !== null) {
+    const route = routes.splice(index, 1)[0];
+    routes = routes.concat({
+      component: route.component,
+    });
+  }
+  return routes;
+}
 
-  api.register('modifyRoutesContent', ({ memo }) => {
-    const filePath = get404JS();
-    if (filePath) {
-      memo.push(`    <Route component={require('${filePath}').default} />`);
-    }
-    return memo;
-  });
+export default function(api) {
+  const { paths, config } = api.service;
+
+  if (process.env.NODE_ENV === 'production' && !config.exportStatic) {
+    api.register('modifyRoutes', ({ memo }) => {
+      return patchRoutes(memo);
+    });
+  }
 
   api.register('beforeServer', ({ args: { devServer } }) => {
     function UMI_PLUGIN_404(req, res, next) {
