@@ -14,6 +14,7 @@ import deprecate from 'deprecate';
 import { BundleAnalyzerPlugin } from 'webpack-bundle-analyzer';
 import CopyWebpackPlugin from 'copy-webpack-plugin';
 import HTMLWebpackPlugin from 'html-webpack-plugin';
+import ProgressPlugin from 'progress-bar-webpack-plugin';
 import { sync as resolveSync } from 'resolve';
 import ForkTsCheckerWebpackPlugin from 'fork-ts-checker-webpack-plugin';
 import uglifyJSConfig from './defaultConfigs/uglifyJS';
@@ -422,9 +423,14 @@ export default function getConfig(opts = {}) {
           },
         },
         {
-          test: /\.(js|jsx)$/,
+          test: /\.js$/,
           include: opts.cwd,
           exclude: /node_modules/,
+          use: babelUse,
+        },
+        {
+          test: /\.jsx$/,
+          include: opts.cwd,
           use: babelUse,
         },
         {
@@ -493,7 +499,9 @@ export default function getConfig(opts = {}) {
                 ],
           )
         : [
-            new webpack.HashedModuleIdsPlugin(),
+            ...(process.env.__FROM_TEST
+              ? []
+              : [new webpack.HashedModuleIdsPlugin()]),
             new webpack.optimize.ModuleConcatenationPlugin(),
             new ExtractTextPlugin({
               filename: `[name]${cssHash}.css`,
@@ -554,6 +562,7 @@ export default function getConfig(opts = {}) {
           context: __dirname,
         },
       }),
+      new ProgressPlugin(),
       ...(process.env.TS_TYPECHECK ? [new ForkTsCheckerWebpackPlugin()] : []),
       ...(opts.ignoreMomentLocale
         ? [new webpack.IgnorePlugin(/^\.\/locale$/, /moment$/)]

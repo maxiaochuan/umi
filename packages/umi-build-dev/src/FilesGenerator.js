@@ -145,18 +145,20 @@ if (process.env.NODE_ENV === 'production') {
   }
 
   generateFiles() {
-    const { paths } = this.service;
+    const { paths, config } = this.service;
     this.service.applyPlugins('generateFiles');
 
     this.generateRouterJS();
     this.generateEntry();
 
     // Generate registerServiceWorker.js
-    writeFileSync(
-      paths.absRegisterSWJSPath,
-      readFileSync(paths.defaultRegisterSWTplPath),
-      'utf-8',
-    );
+    if (process.env.NODE_ENV === 'production' && !config.disableServiceWorker) {
+      writeFileSync(
+        paths.absRegisterSWJSPath,
+        readFileSync(paths.defaultRegisterSWTplPath),
+        'utf-8',
+      );
+    }
   }
 
   generateRouterJS() {
@@ -234,7 +236,14 @@ if (process.env.NODE_ENV === 'production') {
   }
 
   getRequestedRoutes(requested) {
-    const { routes } = this.service;
+    const routes = [...this.service.routes];
+    const rootRoute = routes.filter(route => route.path === '/')[0];
+    if (rootRoute) {
+      routes.unshift({
+        ...rootRoute,
+        path: '/index.html',
+      });
+    }
     return Object.keys(requested).reduce((memo, pathname) => {
       matchRoutes(routes, pathname).forEach(({ route }) => {
         memo[route.path] = 1;
@@ -326,6 +335,8 @@ if (process.env.NODE_ENV === 'production') {
             // 非按需加载
             if (
               env === 'production' ||
+              // 无 socket 时按需编译体验很差，所以禁用
+              process.env.SOCKET_SERVER === 'none' ||
               process.env.COMPILE_ON_DEMAND === 'none' ||
               requestedPaths[path]
             ) {
@@ -348,6 +359,9 @@ if (process.env.NODE_ENV === 'production') {
           });
 
           return ret;
+        } else if (key === 'Route') {
+          const path = winPath(join(paths.cwd, value));
+          return `require('${path}').default`;
         } else {
           return value;
         }
@@ -360,7 +374,9 @@ if (process.env.NODE_ENV === 'production') {
   getRouterContent() {
     return `
 <Router history={window.g_history}>
-  { renderRoutes(routes) }
+  <Route render={({ location }) =>
+    renderRoutes(routes, {}, { location })
+  } />
 </Router>
     `.trim();
   }

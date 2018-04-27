@@ -34,15 +34,36 @@ function runScript(script, args, isFork) {
   }
 }
 
+// Add help command
+const cmds = {
+  build: 'create a production build',
+  dev: 'start a development server',
+  test: 'do unit/ui test with jest',
+  help: 'show help',
+  '-v, --version': 'show version',
+};
+
+function help(aliasedScript) {
+  let usage = `\nUsage: umi <command>\n`;
+  let helpArea = '';
+  for (var cmd in cmds) {
+    helpArea += (' ' + cmd + Array(25 - cmd.length).join(' ') + cmds[cmd] + '\n');
+  }
+  console.log([usage,helpArea].join(`\nCommands:\n\n`));
+  if (!['help', '-h', '--help'].includes(aliasedScript)) {
+    console.log(`Unknown script ${chalk.cyan(aliasedScript)}.`);
+  }
+}
+
+// Script area
 const scriptAlias = {
-  g: 'generate',
+  g: 'generate' // eslint-disable-line
 };
 const aliasedScript = scriptAlias[script] || script;
 
 switch (aliasedScript) {
   case '-v':
   case '--version':
-    const pkg = require('../package.json');
     console.log(pkg.version);
     if (!(pkg._from && pkg._resolved)) {
       console.log(chalk.cyan('@local'));
@@ -57,6 +78,6 @@ switch (aliasedScript) {
     runScript(aliasedScript, args);
     break;
   default:
-    console.log(`Unknown script ${chalk.cyan(aliasedScript)}.`);
+    help(aliasedScript);
     break;
 }

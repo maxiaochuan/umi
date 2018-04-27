@@ -1,9 +1,9 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import globby from 'globby';
 import uniq from 'lodash.uniq';
 
-export default function(api) {
+export default function(api, opts = {}) {
   const { RENDER, ROUTER_MODIFIER, IMPORT } = api.placeholder;
   const { paths, config } = api.service;
   const { winPath } = api.utils;
@@ -98,13 +98,19 @@ export default function(api) {
     const pluginPaths = globby.sync('plugins/**/*.{js,ts}', {
       cwd: paths.absSrcPath,
     });
-    return pluginPaths
-      .map(path =>
-        `
+    const ret = pluginPaths.map(path =>
+      `
 app.use(require('../../${path}').default);
   `.trim(),
-      )
-      .join('\r\n');
+    );
+    if (opts.immer) {
+      ret.push(
+        `
+app.use(require('${winPath(require.resolve('dva-immer'))}').default());
+      `.trim(),
+      );
+    }
+    return ret.join('\r\n');
   }
 
   function stripFirstSlash(path) {
@@ -217,6 +223,13 @@ ReactDOM.render(React.createElement(
       ...memo.alias,
       dva: dirname(require.resolve('dva/package')),
       'dva-loading': require.resolve('dva-loading'),
+      'path-to-regexp': require.resolve('path-to-regexp'),
+      'object-assign': require.resolve('object-assign'),
+      ...(opts.immer
+        ? {
+            immer: require.resolve('immer'),
+          }
+        : {}),
     };
     return memo;
   });
@@ -226,6 +239,8 @@ ReactDOM.render(React.createElement(
       ...memo,
       join(paths.absSrcPath, 'models'),
       join(paths.absSrcPath, 'plugins'),
+      join(paths.absSrcPath, 'model.js'),
+      join(paths.absSrcPath, 'model.ts'),
       join(paths.absSrcPath, 'dva.js'),
       join(paths.absSrcPath, 'dva.ts'),
     ];

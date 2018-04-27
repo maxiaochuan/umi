@@ -13,25 +13,36 @@ export default function(paths, config = {}) {
     ? getRoutesByConfig(routeConfigFile)
     : getRoutesByPagesDir(paths);
 
-  if (config.exportStatic) {
-    patchRoutes(routes, config);
-  }
+  patchRoutes(routes, config, {
+    patchHtmlSuffix: config.exportStatic,
+    patchMeta: !routeConfigFile,
+  });
 
   return routes;
 }
 
-function patchRoutes(routes, config) {
+function patchRoutes(routes, config, opts = {}) {
   routes.forEach(route => {
-    if (route.path.indexOf(':') > -1) {
+    if (opts.patchHtmlSuffix && route.path.indexOf(':') > -1) {
       throw new Error(
         `Variable path ${route.path} don\'t work with exportStatic`,
       );
     }
 
     if (route.routes) {
-      patchRoutes(route.routes, config);
+      patchRoutes(route.routes, config, opts);
     } else {
       if (
+        opts.patchMeta &&
+        config.pages &&
+        config.pages[route.path] &&
+        config.pages[route.path].Route
+      ) {
+        route.meta = { Route: config.pages[route.path].Route };
+      }
+
+      if (
+        opts.patchHtmlSuffix &&
         typeof config.exportStatic === 'object' &&
         config.exportStatic.htmlSuffix
       ) {
@@ -64,7 +75,7 @@ function getRoutesByConfig(routesConfigFile) {
 }
 
 function variablePath(path) {
-  return path.replace(/\$/g, ':');
+  return winPath(path).split('/').map(path => path.replace(/^\$/, ':').replace(/\$$/, '?')).join('/')
 }
 
 function getLayoutJS(paths, fullPath) {
@@ -76,6 +87,10 @@ function getLayoutJS(paths, fullPath) {
       return layoutJS;
     }
   }
+}
+
+function startsWith$(file) {
+  return file.charAt(0) === '$';
 }
 
 function getRoutesByPagesDir(paths, dirPath = '') {
@@ -107,7 +122,7 @@ function getRoutesByPagesDir(paths, dirPath = '') {
             path = '/';
           }
           path = path.replace(/\/index$/, '/');
-          ret.push({
+          ret[startsWith$(file) ? 'push' : 'unshift']({
             path,
             exact: true,
             component: `./${relative(cwd, filePath)}`,
@@ -126,7 +141,7 @@ function getRoutesByPagesDir(paths, dirPath = '') {
                 )}"，两者指向同一路由。`,
               );
             }
-            ret.push({
+            ret[startsWith$(file) ? 'push' : 'unshift']({
               path: winPath(`/${variablePath(fullPath)}`).replace(
                 /\/index$/,
                 '/',
@@ -146,7 +161,7 @@ function getRoutesByPagesDir(paths, dirPath = '') {
           const layoutFile = getLayoutJS(paths, fullPath);
           const childRoutes = getRoutesByPagesDir(paths, fullPath);
           if (layoutFile) {
-            ret = ret.concat({
+            ret[startsWith$(file) ? 'push' : 'unshift']({
               path: winPath(`/${variablePath(fullPath)}`),
               exact: false,
               component: `./${relative(cwd, layoutFile)}`,
